@@ -3,7 +3,7 @@ Configuration settings for Post-Quantum Secure Federated Learning Framework
 """
 
 # ==================== FEDERATED LEARNING ====================
-NUM_ROUNDS = 50
+NUM_ROUNDS = 10
 LOCAL_EPOCHS = 4
 NUM_CLIENTS = 10
 BATCH_SIZE = 128
