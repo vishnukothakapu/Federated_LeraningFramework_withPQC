@@ -3,17 +3,20 @@ Configuration settings for Post-Quantum Secure Federated Learning Framework
 """
 
 # ==================== FEDERATED LEARNING ====================
-NUM_ROUNDS = 10
-LOCAL_EPOCHS = 4
+NUM_ROUNDS = 50              # Sufficient rounds for CIFAR-10 convergence
+LOCAL_EPOCHS = 3             # Fewer local epochs per round reduces client drift
 NUM_CLIENTS = 10
-BATCH_SIZE = 128
-LEARNING_RATE = 0.1
+BATCH_SIZE = 64              # Smaller batch → better gradient estimates
+LEARNING_RATE = 0.01         # Lower LR; combined with cosine decay in training loop
+SERVER_LEARNING_RATE = 1.0   # FIX: was 0.1 — standard FedAvg uses 1.0 (full update)
 OPTIMIZER = 'sgd'
+WEIGHT_DECAY = 1e-4          # L2 regularization for client optimizers
+GRAD_CLIP_NORM = 5.0         # Gradient clipping norm for stable training
 
 # ==================== DATASET ====================
 DATASET_NAME = 'cifar-10'
 NUM_CLASSES = 10
-DIRICHLET_ALPHA = 0.5
+DIRICHLET_ALPHA = 1.0        # FIX: was 0.5 — more balanced non-IID split
 DATA_SPLIT_RATIO = (0.8, 0.2)  # (train, test)
 RANDOM_SEED = 42
 
