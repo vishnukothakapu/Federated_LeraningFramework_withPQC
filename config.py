@@ -61,9 +61,12 @@ MANHATTAN_DISTANCE_DEVIATION_FACTOR = 2.0  # Multiplier for standard deviation
 SECURE_AGGREGATION_ENABLED = False
 SECRET_SHARING_THRESHOLD = 5
 
-# ==================== TRUST SCORE (Future)
-TRUST_SCORE_ENABLED = False
-TRUST_WINDOW = 5
+# ==================== TRUST SCORE ====================
+TRUST_SCORE_ENABLED = True      # Enable trust-based aggregation weighting
+TRUST_WINDOW = 5                # Sliding window of rounds for score history
+TRUST_ALPHA = 0.8               # EMA decay: new_score = alpha*old + (1-alpha)*update
+TRUST_MIN = 0.1                 # Floor score — no client is fully silenced
+TRUST_NORM_PENALTY = 0.5        # Weight of update-norm penalty vs cosine similarity
 
 # ==================== MANHATTAN DISTANCE ====================
 MANHATTAN_THRESHOLD = 0.5
@@ -99,70 +102,96 @@ EXPERIMENTS = {
         'byzantine_enabled': False,
         'data_poisoning_enabled': False,
         'defense': 'fedavg',
-        'pqc_enabled': False
+        'pqc_enabled': False,
+        'trust_enabled': False
     },
     'exp2': {
         'name': 'Byzantine Attack + FedAvg',
         'byzantine_enabled': True,
         'data_poisoning_enabled': False,
         'defense': 'fedavg',
-        'pqc_enabled': False
+        'pqc_enabled': False,
+        'trust_enabled': False
     },
     'exp3': {
         'name': 'Byzantine Attack + Krum',
         'byzantine_enabled': True,
         'data_poisoning_enabled': False,
         'defense': 'krum',
-        'pqc_enabled': False
+        'pqc_enabled': False,
+        'trust_enabled': False
     },
     'exp4': {
         'name': 'Data Poisoning + FedAvg',
         'byzantine_enabled': False,
         'data_poisoning_enabled': True,
         'defense': 'fedavg',
-        'pqc_enabled': False
+        'pqc_enabled': False,
+        'trust_enabled': False
     },
     'exp5': {
         'name': 'Data Poisoning + Krum',
         'byzantine_enabled': False,
         'data_poisoning_enabled': True,
         'defense': 'krum',
-        'pqc_enabled': False
+        'pqc_enabled': False,
+        'trust_enabled': False
     },
     'exp6': {
         'name': 'Byzantine Attack + PQC + FedAvg',
         'byzantine_enabled': True,
         'data_poisoning_enabled': False,
         'defense': 'fedavg',
-        'pqc_enabled': True
+        'pqc_enabled': True,
+        'trust_enabled': False
     },
     'exp7': {
         'name': 'Byzantine Attack + PQC + Krum',
         'byzantine_enabled': True,
         'data_poisoning_enabled': False,
         'defense': 'krum',
-        'pqc_enabled': True
+        'pqc_enabled': True,
+        'trust_enabled': False
     },
     'exp8': {
         'name': 'Byzantine Attack + Manhattan Distance',
         'byzantine_enabled': True,
         'data_poisoning_enabled': False,
         'defense': 'manhattan',
-        'pqc_enabled': False
+        'pqc_enabled': False,
+        'trust_enabled': False
     },
     'exp9': {
         'name': 'Data Poisoning + Manhattan Distance',
         'byzantine_enabled': False,
         'data_poisoning_enabled': True,
         'defense': 'manhattan',
-        'pqc_enabled': False
+        'pqc_enabled': False,
+        'trust_enabled': False
     },
     'exp10': {
         'name': 'Byzantine Attack + PQC + Manhattan Distance',
         'byzantine_enabled': True,
         'data_poisoning_enabled': False,
         'defense': 'manhattan',
-        'pqc_enabled': True
+        'pqc_enabled': True,
+        'trust_enabled': False
+    },
+    'exp11': {
+        'name': 'Byzantine Attack + Trust-Based FedAvg',
+        'byzantine_enabled': True,
+        'data_poisoning_enabled': False,
+        'defense': 'fedavg',
+        'pqc_enabled': False,
+        'trust_enabled': True
+    },
+    'exp12': {
+        'name': 'Byzantine Attack + PQC + Trust-Based FedAvg',
+        'byzantine_enabled': True,
+        'data_poisoning_enabled': False,
+        'defense': 'fedavg',
+        'pqc_enabled': True,
+        'trust_enabled': True
     }
 }
 

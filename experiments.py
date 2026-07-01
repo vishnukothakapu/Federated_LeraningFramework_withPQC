@@ -42,6 +42,7 @@ class ExperimentRunner:
 
         Per-experiment pqc_enabled overrides the global PQC_ENABLED flag
         so that experiments with pqc_enabled=False truly disable PQC.
+        trust_enabled overrides TRUST_SCORE_ENABLED similarly.
         """
         import config as _cfg
 
@@ -50,6 +51,10 @@ class ExperimentRunner:
         _cfg.PQC_ENABLED    = _exp_pqc
         _cfg.ENCRYPT_MESSAGE = _exp_pqc
         _cfg.SIGN_MESSAGE    = _exp_pqc
+
+        # Override global trust flag for this experiment
+        _exp_trust = self.config.get('trust_enabled', False)
+        _cfg.TRUST_SCORE_ENABLED = _exp_trust
 
         # Create global model
         global_model = create_model(device=DEVICE)
@@ -96,12 +101,14 @@ class ExperimentRunner:
             )
             clients.append(client)
 
-        # Create server (uses updated PQC_ENABLED)
+        # Create server (uses updated PQC_ENABLED and TRUST_SCORE_ENABLED)
         defense_method = self.config.get('defense', 'fedavg')
+        trust_enabled  = self.config.get('trust_enabled', False)
         server = FLServer(
             model=global_model,
             defense_name=defense_method,
-            device=DEVICE
+            device=DEVICE,
+            trust_enabled=trust_enabled
         )
 
         # Register client DSA public keys with the server
@@ -138,6 +145,7 @@ class ExperimentRunner:
         apply_byzantine     = self.config.get('byzantine_enabled', False)
         apply_data_poisoning = self.config.get('data_poisoning_enabled', False)
         pqc_enabled         = self.config.get('pqc_enabled', False)
+        trust_enabled       = self.config.get('trust_enabled', False)
 
         # ── Attempt to resume from checkpoint ────────────────────────────
         start_round = 0
@@ -166,6 +174,7 @@ class ExperimentRunner:
         print(f"  Byzantine    : {apply_byzantine}")
         print(f"  Data Poison  : {apply_data_poisoning}")
         print(f"  PQC Enabled  : {pqc_enabled}")
+        print(f"  Trust Scoring: {trust_enabled}")
         print(f"  Defense      : {self.config.get('defense', 'fedavg')}")
         print(f"  Checkpointing: every {CHECKPOINT_INTERVAL} rounds "
               f"(dir: {self.checkpoint_mgr.ckpt_dir})")
@@ -195,6 +204,10 @@ class ExperimentRunner:
                       f"TrainLoss: {avg_loss:.4f} | "
                       f"TestLoss: {loss:.4f} | "
                       f"Accuracy: {acc:.2f}%")
+
+                # Print trust scores when enabled
+                if trust_enabled and learner.server.trust_manager is not None:
+                    learner.server.trust_manager.print_scores(round_num)
 
             # ── Incremental metrics flush (crash safety) ──────────────
             self.metrics_tracker.save_incremental()
@@ -356,7 +369,36 @@ def run_experiment_10():
         'byzantine_enabled': True,
         'data_poisoning_enabled': False,
         'defense': 'manhattan',
-        'pqc_enabled': True
+        'pqc_enabled': True,
+        'trust_enabled': False
+    }
+    runner = ExperimentRunner(config)
+    return runner.run()
+
+
+def run_experiment_11():
+    """Experiment 11: Byzantine Attack + Trust-Based FedAvg"""
+    config = {
+        'name': 'Exp11: Byzantine Attack + Trust-Based FedAvg',
+        'byzantine_enabled': True,
+        'data_poisoning_enabled': False,
+        'defense': 'fedavg',
+        'pqc_enabled': False,
+        'trust_enabled': True
+    }
+    runner = ExperimentRunner(config)
+    return runner.run()
+
+
+def run_experiment_12():
+    """Experiment 12: Byzantine Attack + PQC + Trust-Based FedAvg"""
+    config = {
+        'name': 'Exp12: Byzantine Attack + PQC + Trust-Based FedAvg',
+        'byzantine_enabled': True,
+        'data_poisoning_enabled': False,
+        'defense': 'fedavg',
+        'pqc_enabled': True,
+        'trust_enabled': True
     }
     runner = ExperimentRunner(config)
     return runner.run()
@@ -371,16 +413,18 @@ def run_all_experiments():
     all_metrics = {}
     
     experiments = [
-        ("Exp1", run_experiment_1),
-        ("Exp2", run_experiment_2),
-        ("Exp3", run_experiment_3),
-        ("Exp4", run_experiment_4),
-        ("Exp5", run_experiment_5),
-        ("Exp6", run_experiment_6),
-        ("Exp7", run_experiment_7),
-        ("Exp8", run_experiment_8),
-        ("Exp9", run_experiment_9),
+        ("Exp1",  run_experiment_1),
+        ("Exp2",  run_experiment_2),
+        ("Exp3",  run_experiment_3),
+        ("Exp4",  run_experiment_4),
+        ("Exp5",  run_experiment_5),
+        ("Exp6",  run_experiment_6),
+        ("Exp7",  run_experiment_7),
+        ("Exp8",  run_experiment_8),
+        ("Exp9",  run_experiment_9),
         ("Exp10", run_experiment_10),
+        ("Exp11", run_experiment_11),
+        ("Exp12", run_experiment_12),
     ]
     
     for exp_name, exp_func in experiments:

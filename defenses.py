@@ -1,10 +1,11 @@
 """
 Defense Mechanisms: FedAvg, Krum, and ManhattanDistance
+All three defenses optionally accept trust weights from a TrustManager.
 """
 
 import torch
 import numpy as np
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from collections import deque
 from config import *
 
@@ -12,20 +13,26 @@ from config import *
 class FedAvgDefense:
     """
     Standard FedAvg aggregation (baseline defense)
-    Simply averages all updates
+    Averages all updates; accepts optional trust weights.
     """
     
     def __init__(self):
         self.name = 'FedAvg'
     
     def aggregate(self, updates: List[torch.Tensor], 
-                 weights: List[float] = None) -> torch.Tensor:
+                 weights: List[float] = None,
+                 trust_weights: List[float] = None) -> torch.Tensor:
         """
-        Aggregate updates using FedAvg
+        Aggregate updates using FedAvg.
+
+        When trust_weights are provided they are multiplied element-wise with
+        any explicit weights before normalisation, so the result is a single
+        trust-adjusted weighted average.
         
         Args:
-            updates: List of model updates
-            weights: Optional weights for each update
+            updates:       List of model updates
+            weights:       Optional base weights for each update
+            trust_weights: Optional per-client trust weights from TrustManager
         
         Returns:
             Aggregated update
@@ -33,8 +40,19 @@ class FedAvgDefense:
         if not updates:
             return None
         
+        n = len(updates)
+
+        # Start with uniform base weights if none supplied
         if weights is None:
-            weights = [1.0 / len(updates)] * len(updates)
+            weights = [1.0 / n] * n
+
+        # Blend in trust weights when provided
+        if trust_weights is not None and len(trust_weights) == n:
+            combined = [w * t for w, t in zip(weights, trust_weights)]
+            total = sum(combined)
+            if total > 1e-12:
+                weights = [c / total for c in combined]
+            # else fall back to original weights unchanged
         
         # Weighted average
         aggregated = None
@@ -119,13 +137,19 @@ class KrumDefense:
         return scores
 
     def aggregate(self, updates: List[torch.Tensor],
-                  client_ids: List[int] = None) -> Tuple[torch.Tensor, Dict]:
+                  client_ids: List[int] = None,
+                  trust_modifiers: List[float] = None) -> Tuple[torch.Tensor, Dict]:
         """
         Aggregate updates with Multi-Krum defense.
 
+        When trust_modifiers are provided (from TrustManager.get_krum_modifiers),
+        each client's Krum score is multiplied by its modifier so lower-trust
+        clients rank worse and are less likely to be selected.
+
         Args:
-            updates:    List of model updates.
-            client_ids: Optional list of client IDs (for logging).
+            updates:          List of model updates.
+            client_ids:       Optional list of client IDs (for logging).
+            trust_modifiers:  Optional per-client multipliers from TrustManager.
 
         Returns:
             (aggregated_update, defense_info)
@@ -139,6 +163,10 @@ class KrumDefense:
         m = max(m, 1)  # Always select at least one
 
         scores = self.compute_krum_scores(updates)
+
+        # Apply trust modifiers: higher modifier → higher score → less likely selected
+        if trust_modifiers is not None and len(trust_modifiers) == n:
+            scores = scores * np.array(trust_modifiers, dtype=float)
 
         # Select the m updates with lowest Krum scores
         selected_indices = np.argsort(scores)[:m]
@@ -258,13 +286,19 @@ class ManhattanDistanceDefense:
         return distances, outlier_indices
     
     def aggregate(self, updates: List[torch.Tensor],
-                 client_ids: List[int] = None) -> Tuple[torch.Tensor, Dict]:
+                 client_ids: List[int] = None,
+                 trust_weights: np.ndarray = None) -> Tuple[torch.Tensor, Dict]:
         """
-        Aggregate updates with Manhattan Distance defense
+        Aggregate updates with Manhattan Distance defense.
+
+        When trust_weights are provided (from TrustManager.get_manhattan_weights),
+        each client's outlier weight is multiplied by its trust score before
+        normalisation, further down-weighting low-trust clients.
         
         Args:
-            updates: List of model updates
-            client_ids: Client IDs (optional)
+            updates:       List of model updates
+            client_ids:    Client IDs (optional)
+            trust_weights: Optional per-client trust multipliers (numpy array)
         
         Returns:
             (aggregated_update, defense_info)
@@ -284,9 +318,17 @@ class ManhattanDistanceDefense:
         # Reduce weights for outlier updates
         for idx in outlier_indices:
             weights[idx] *= 0.5  # Reduce contribution
+
+        # Apply trust multipliers before normalisation
+        if trust_weights is not None and len(trust_weights) == len(updates):
+            weights = weights * trust_weights
         
         # Normalize weights
-        weights = weights / np.sum(weights)
+        total_w = np.sum(weights)
+        if total_w > 1e-12:
+            weights = weights / total_w
+        else:
+            weights = np.ones(len(updates)) / len(updates)
         
         # Aggregate with weighted average
         aggregated = None
@@ -329,33 +371,42 @@ class AdaptiveDefense:
             raise ValueError(f"Unknown defense: {defense_name}")
 
     def aggregate(self, updates: List[torch.Tensor],
-                  client_ids: List[int] = None) -> Tuple[torch.Tensor, Dict]:
-        """Aggregate using current defense method"""
+                  client_ids: List[int] = None,
+                  trust_weights=None,
+                  trust_modifiers=None) -> Tuple[torch.Tensor, Dict]:
+        """Aggregate using current defense method, forwarding trust arguments."""
         defense = self.defense_methods[self.current_defense]
 
         if self.current_defense == 'fedavg':
-            return defense.aggregate(updates), {'defense': 'FedAvg'}
+            return defense.aggregate(updates, trust_weights=trust_weights), {'defense': 'FedAvg'}
         elif self.current_defense == 'krum':
-            return defense.aggregate(updates, client_ids)
+            return defense.aggregate(updates, client_ids, trust_modifiers=trust_modifiers)
         elif self.current_defense == 'manhattan':
-            return defense.aggregate(updates, client_ids)
+            return defense.aggregate(updates, client_ids, trust_weights=trust_weights)
 
 
-def create_defense(defense_name: str = DEFENSE_METHOD) -> torch.nn.Module:
+def create_defense(defense_name: str = DEFENSE_METHOD,
+                   trust_manager=None) -> object:
     """
     Factory function to create defense mechanism.
 
     Args:
-        defense_name: 'fedavg', 'krum', or 'manhattan'
+        defense_name:  'fedavg', 'krum', or 'manhattan'
+        trust_manager: Optional TrustManager instance; stored on the defense
+                       object as ``.trust_manager`` for use during aggregation.
 
     Returns:
         Defense instance
     """
     if defense_name == 'fedavg':
-        return FedAvgDefense()
+        defense = FedAvgDefense()
     elif defense_name == 'krum':
-        return KrumDefense()
+        defense = KrumDefense()
     elif defense_name == 'manhattan':
-        return ManhattanDistanceDefense()
+        defense = ManhattanDistanceDefense()
     else:
         raise ValueError(f"Unknown defense: {defense_name}")
+
+    # Attach trust manager as optional attribute for use in FLServer
+    defense.trust_manager = trust_manager
+    return defense

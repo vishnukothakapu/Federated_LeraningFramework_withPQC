@@ -68,7 +68,8 @@ class MetricsTracker:
             'num_valid_updates': [],
             'num_invalid_updates': [],
             'krum_rejected_clients': [],
-            'client_losses': []
+            'client_losses': [],
+            'trust_scores': []   # list of {client_id: score} dicts, one per round
         }
         self.round_data = []
 
@@ -168,6 +169,13 @@ class MetricsTracker:
         agg_stats = round_stats.get('aggregation_stats', {})
         if 'num_rejected' in agg_stats:
             self.metrics['krum_rejected_clients'].append(agg_stats['num_rejected'])
+
+        # Trust scores — store snapshot dict {client_id: score}
+        trust_snap = round_stats.get('trust_scores', {})
+        if trust_snap:
+            self.metrics['trust_scores'].append(
+                {str(k): float(v) for k, v in trust_snap.items()}
+            )
 
         # Store round data
         self.round_data.append({
@@ -329,6 +337,51 @@ class MetricsTracker:
 
         self._logger.info(f"Plots saved to {out}")
         print(f"Plots saved to {out}")
+
+        # Trust score evolution (only when trust scoring was active)
+        if self.metrics.get('trust_scores'):
+            self._plot_trust_scores(out)
+
+    def _plot_trust_scores(self, out):
+        """
+        Plot per-client trust score evolution across rounds.
+
+        Only called from plot_results() when trust_scores data exists.
+        Each client gets its own line; Byzantine behaviour is visible as
+        a downward trend in the corresponding client's score.
+        """
+        trust_data = self.metrics['trust_scores']  # list of {str(client_id): score}
+        if not trust_data:
+            return
+
+        # Collect all client ids present across rounds
+        all_ids = sorted(
+            {int(k) for snap in trust_data for k in snap.keys()},
+            key=int
+        )
+
+        rounds = list(range(1, len(trust_data) + 1))
+
+        plt.figure(figsize=(12, 6))
+        for cid in all_ids:
+            scores = [snap.get(str(cid), None) for snap in trust_data]
+            # Replace None with NaN for clean gaps in the plot
+            scores_clean = [s if s is not None else float('nan') for s in scores]
+            plt.plot(rounds, scores_clean, marker='o', markersize=3,
+                     label=f'Client {cid}')
+
+        plt.xlabel('Round')
+        plt.ylabel('Trust Score')
+        plt.title(f'{self.experiment_name} - Client Trust Scores')
+        plt.ylim(0.0, 1.05)
+        plt.axhline(y=0.1, color='red', linestyle='--', linewidth=0.8,
+                    label='Min trust floor')
+        plt.legend(loc='lower left', fontsize='small', ncol=2)
+        plt.grid(True, alpha=0.4)
+        plt.tight_layout()
+        plt.savefig(out / f"{self.safe_name}_trust_scores.png", dpi=100)
+        plt.close()
+        print(f"Trust score plot saved to {out / (self.safe_name + '_trust_scores.png')}")
     
     def print_summary(self):
         """Print summary statistics"""

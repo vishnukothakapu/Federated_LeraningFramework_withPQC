@@ -26,6 +26,7 @@ from pqc import (PostQuantumCrypto, serialize_update, deserialize_update,
                   EncryptedUpdate, encrypt_update, decrypt_update,
                   serialize_state_dict, deserialize_state_dict)
 from attacks import AttackManager
+from trust import TrustManager
 from config import *
 
 
@@ -251,17 +252,29 @@ class FLServer:
 
     def __init__(self, model: CIFAR10CNN,
                  defense_name: str = DEFENSE_METHOD,
-                 device: str = DEVICE):
+                 device: str = DEVICE,
+                 trust_enabled: bool = None):
         """
         Args:
-            model:        Global model
-            defense_name: 'fedavg', 'krum', or 'manhattan'
-            device:       Device string
+            model:         Global model
+            defense_name:  'fedavg', 'krum', or 'manhattan'
+            device:        Device string
+            trust_enabled: Override TRUST_SCORE_ENABLED from config.
+                           Defaults to the config value if None.
         """
         self.model = model
         self.device = device
-        self.defense = create_defense(defense_name)
         self.defense_name = defense_name
+
+        # Trust scoring
+        _trust_on = TRUST_SCORE_ENABLED if trust_enabled is None else trust_enabled
+        self.trust_manager: Optional[TrustManager] = (
+            TrustManager() if _trust_on else None
+        )
+
+        # Pass trust manager to the defense factory for attachment
+        self.defense = create_defense(defense_name,
+                                      trust_manager=self.trust_manager)
 
         # PQC for server (ML-KEM key pair for client-to-server encryption)
         self.pqc = PostQuantumCrypto() if PQC_ENABLED else None
@@ -385,21 +398,47 @@ class FLServer:
         """
         Aggregate valid updates using the chosen defense mechanism.
 
+        When trust scoring is enabled, the appropriate per-defense trust
+        arguments are computed and passed in before the scores are refreshed
+        with the result of this round's aggregation.
+
         Returns:
             (aggregated_update_tensor, aggregation_stats)
         """
         if not updates:
             return None, {}
 
+        tm = self.trust_manager  # shorthand; may be None
+
         if self.defense_name == 'krum':
-            aggregated, stats = self.defense.aggregate(updates, valid_client_ids)
+            modifiers = tm.get_krum_modifiers(valid_client_ids) if tm else None
+            aggregated, stats = self.defense.aggregate(
+                updates, valid_client_ids, trust_modifiers=modifiers
+            )
         elif self.defense_name == 'manhattan':
-            aggregated, stats = self.defense.aggregate(updates, valid_client_ids)
-        else:
-            aggregated = self.defense.aggregate(updates)
+            tw = tm.get_manhattan_weights(valid_client_ids) if tm else None
+            aggregated, stats = self.defense.aggregate(
+                updates, valid_client_ids, trust_weights=tw
+            )
+        else:  # fedavg
+            tw = tm.get_weights(valid_client_ids) if tm else None
+            aggregated = self.defense.aggregate(updates, trust_weights=tw)
             stats = {}
 
+        # Update trust scores now that we have the aggregated reference
+        if tm is not None and aggregated is not None:
+            tm.update_scores(valid_client_ids, updates, aggregated)
+
         return aggregated, stats
+
+    def get_trust_scores(self) -> Dict[int, float]:
+        """
+        Return current trust scores for all registered clients.
+        Returns an empty dict when trust scoring is disabled.
+        """
+        if self.trust_manager is not None:
+            return self.trust_manager.get_scores()
+        return {}
 
     def update_global_model(self, aggregated_update: torch.Tensor,
                             round_num: int = 0) -> float:
@@ -487,7 +526,8 @@ class FederatedLearner:
             'test_accuracy': 0.0,
             'update_norm': 0.0,
             'aggregation_stats': {},
-            'pqc_stats': {}
+            'pqc_stats': {},
+            'trust_scores': {}
         }
 
         # ------------------------------------------------------------------ #
@@ -548,6 +588,9 @@ class FederatedLearner:
         update_norm = self.server.update_global_model(aggregated_update, round_num)
         round_stats['update_norm'] = update_norm
         self.history['update_norm'].append(update_norm)
+
+        # Capture trust scores (empty dict if trust disabled)
+        round_stats['trust_scores'] = self.server.get_trust_scores()
 
         if update_norm < 1e-8 and len(updates) > 0:
             print(f"  [WARNING] Round {round_num+1}: Update norm is near-zero ({update_norm:.2e}). "
