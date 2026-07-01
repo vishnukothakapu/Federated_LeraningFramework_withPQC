@@ -12,14 +12,17 @@ A comprehensive federated learning framework with support for Byzantine and data
 
 ### Security Features
 - **Post-Quantum Cryptography**:
-  - ML-KEM-768 (Kyber) for encryption
+  - ML-KEM-768 (Kyber) for key encapsulation
   - ML-DSA-65 (Dilithium) for digital signatures
+  - AES-256-GCM symmetric encryption for confidentiality and integrity
+  - HKDF-SHA256 for key derivation
   - Secure update communication
 
-- **Attack Detection**:
+- **Attack Detection & Defense**:
   - Byzantine Model Poisoning (configurable scale)
   - Data Poisoning via label flipping
-  - FoolsGold defense mechanism
+  - Krum Defense (Byzantine-resilient aggregation)
+  - Manhattan Distance Defense (Outlier detection)
 
 ### Evaluation
 - Comprehensive metrics tracking
@@ -84,20 +87,29 @@ python basecode.py --experiment 1
 # Experiment 2: Byzantine Attack + FedAvg
 python basecode.py --experiment 2
 
-# Experiment 3: Byzantine Attack + FoolsGold
+# Experiment 3: Byzantine Attack + Krum
 python basecode.py --experiment 3
 
 # Experiment 4: Data Poisoning + FedAvg
 python basecode.py --experiment 4
 
-# Experiment 5: Data Poisoning + FoolsGold
+# Experiment 5: Data Poisoning + Krum
 python basecode.py --experiment 5
 
 # Experiment 6: Byzantine Attack + PQC + FedAvg
 python basecode.py --experiment 6
 
-# Experiment 7: Byzantine Attack + PQC + FoolsGold
+# Experiment 7: Byzantine Attack + PQC + Krum
 python basecode.py --experiment 7
+
+# Experiment 8: Byzantine Attack + Manhattan Distance
+python basecode.py --experiment 8
+
+# Experiment 9: Data Poisoning + Manhattan Distance
+python basecode.py --experiment 9
+
+# Experiment 10: Byzantine Attack + PQC + Manhattan Distance
+python basecode.py --experiment 10
 ```
 
 ### 2. Run All Experiments
@@ -118,11 +130,11 @@ Edit `config.py` to modify:
 Example:
 ```python
 NUM_ROUNDS = 50              # Federated learning rounds
-LOCAL_EPOCHS = 4             # Local training epochs
+LOCAL_EPOCHS = 3             # Local training epochs
 NUM_CLIENTS = 10             # Number of clients
 BYZANTINE_SCALE = 3.0        # Poisoning scale factor
 POISON_RATIO = 0.3           # Data poisoning ratio
-DEFENSE_METHOD = 'foolsgold' # or 'fedavg'
+DEFENSE_METHOD = 'krum'      # 'fedavg', 'krum', or 'manhattan'
 ```
 
 ## Experiments
@@ -137,8 +149,8 @@ Federated learning with Byzantine model poisoning but no defense.
 
 **Expected Result**: Accuracy degradation due to malicious updates
 
-### Experiment 3: Byzantine Attack + FoolsGold
-Byzantine attack with FoolsGold defense mechanism.
+### Experiment 3: Byzantine Attack + Krum
+Byzantine attack with Krum defense mechanism.
 
 **Expected Result**: Improved robustness vs Exp 2
 
@@ -147,20 +159,35 @@ Data poisoning (label flipping) without defense.
 
 **Expected Result**: Slow convergence and lower accuracy
 
-### Experiment 5: Data Poisoning + FoolsGold
-Data poisoning with FoolsGold defense.
+### Experiment 5: Data Poisoning + Krum
+Data poisoning with Krum defense.
 
 **Expected Result**: Better accuracy than Exp 4
 
 ### Experiment 6: Byzantine Attack + PQC + FedAvg
 Byzantine attack with ML-KEM encryption and ML-DSA signatures.
 
-**Expected Result**: Secure communication with Byzantine resilience
+**Expected Result**: Secure communication, but vulnerable to poisoning without robust defense
 
-### Experiment 7: Byzantine Attack + PQC + FoolsGold
-Full secure setup with all defenses.
+### Experiment 7: Byzantine Attack + PQC + Krum
+Secure setup with Krum defense.
 
-**Expected Result**: Most robust configuration
+**Expected Result**: Robust configuration against Byzantine attackers
+
+### Experiment 8: Byzantine Attack + Manhattan Distance
+Byzantine attack with Manhattan Distance defense mechanism.
+
+**Expected Result**: Improved robustness by outlier detection
+
+### Experiment 9: Data Poisoning + Manhattan Distance
+Data poisoning with Manhattan Distance defense.
+
+**Expected Result**: Better accuracy than Exp 4
+
+### Experiment 10: Byzantine Attack + PQC + Manhattan Distance
+Full secure setup with Manhattan Distance defense.
+
+**Expected Result**: Most robust configuration with full encryption
 
 ## Output
 
@@ -186,7 +213,7 @@ results/
 - **Decryption Time**: PQC decryption time (if enabled)
 - **Signature Verification Time**: ML-DSA verification time
 - **Valid/Invalid Updates**: Count of accepted/rejected updates
-- **Suspicious Clients**: FoolsGold detection count
+- **Suspicious Clients**: Krum/Manhattan Distance rejected/outlier count
 
 ## Configuration
 
@@ -225,9 +252,11 @@ ENCRYPT_MESSAGE = True
 
 #### Defense
 ```python
-DEFENSE_METHOD = 'fedavg'    # or 'foolsgold'
-FOOLSGOLD_SIMILARITY_THRESHOLD = 0.5
-FOOLSGOLD_HISTORY_SIZE = 10
+DEFENSE_METHOD = 'fedavg'    # 'fedavg', 'krum', or 'manhattan'
+KRUM_NUM_BYZANTINE = 1       # Expected number of Byzantine clients (f)
+KRUM_MULTI_K = 5             # Number of updates to select in Multi-Krum (m)
+MANHATTAN_DISTANCE_THRESHOLD = 0.5
+MANHATTAN_DISTANCE_DEVIATION_FACTOR = 2.0
 ```
 
 ## Architecture Overview
@@ -268,8 +297,8 @@ FOOLSGOLD_HISTORY_SIZE = 10
                   │
          ┌────────v────────┐
          │  Defense Layer  │
-         │ (FedAvg/Fools   │
-         │  Gold)          │
+         │ (FedAvg/Krum/   │
+         │  Manhattan)     │
          └────────┬────────┘
                   │
          ┌────────v────────┐
@@ -371,7 +400,7 @@ mkdir -p ./data
 ## References
 
 1. **Federated Learning**: McMahan et al., "Communication-Efficient Learning of Deep Networks from Decentralized Data", ICML 2017
-2. **FoolsGold**: Fung et al., "Mitigating Sybils in Federated Learning", NDSS 2020
+2. **Krum Defense**: Blanchard et al., "Machine Learning with Adversaries: Byzantine Tolerant Gradient Descent", NIPS 2017
 3. **Post-Quantum Cryptography**: NIST PQC Standardization
 4. **ML-KEM (Kyber)**: https://pq-crystals.org/kyber/
 5. **ML-DSA (Dilithium)**: https://pq-crystals.org/dilithium/
